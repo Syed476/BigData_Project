@@ -1,0 +1,188 @@
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from datetime import datetime
+from awsglue.dynamicframe import DynamicFrame
+from pyspark.sql.functions import col
+
+args = getResolvedOptions(sys.argv, ["JOB_NAME"])
+sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args["JOB_NAME"], args)
+
+
+
+# Script generated for node AWS Glue Data Catalog
+partDF = glueContext.create_dynamic_frame.from_catalog(
+    database="mot_dev_rdsglue_acturis",
+    table_name="acturis_dbo_part",
+)
+# Script generated for node AWS Glue Data Catalog
+policyDF = glueContext.create_dynamic_frame.from_catalog(
+    database="mot_dev_rdsglue_acturis",
+    table_name="acturis_dbo_policy",
+)
+# Script generated for node AWS Glue Data Catalog
+clientDF = glueContext.create_dynamic_frame.from_catalog(
+    database="mot_dev_rdsglue_acturis",
+    table_name="acturis_dbo_client",
+)
+product_questionDF = glueContext.create_dynamic_frame.from_catalog(
+    database="mot_dev_rdsglue_acturis",
+    table_name="acturis_dbo_product_question",
+)
+
+part_answer_bridgeDF = glueContext.create_dynamic_frame.from_catalog(
+    database="mot_dev_rdsglue_acturis",
+    table_name="acturis_dbo_part_answer_bridge",
+)
+
+# Converting Glue dynamicframes to spark dataframes and selecting/renaming relevant fields
+policyDF=policyDF.select_fields(paths=["insurer_policy_no","policy_key","client_key","accepted_date_key","effective_date_key","term_end_date_key"]).toDF()
+policyDF=policyDF.withColumnRenamed("client_key","client_key_p")
+clientDF=clientDF.select_fields(paths=["client_key","client_ref"]).toDF()
+partDF=partDF.select_fields(paths=["policy_key","part_key"]).toDF()
+partDF=partDF.withColumnRenamed("part_key","part_key_pt")
+partDF=partDF.withColumnRenamed("policy_key","policy_key_pt")
+part_answer_bridgeDF=part_answer_bridgeDF.select_fields(paths=["part_key","answer_text","product_question_key"]).toDF()
+part_answer_bridgeDF=part_answer_bridgeDF.withColumnRenamed("product_question_key","product_question_key_pab")
+part_answer_bridgeDF=part_answer_bridgeDF.withColumnRenamed("part_key","part_key_pab")
+product_questionDF=product_questionDF.select_fields(paths=["question_text","product_question_key"]).toDF()
+product_questionDF=product_questionDF.withColumnRenamed("product_question_key","product_question_key_pq")
+
+# printing number of records from spark dataframes
+print(f"...... partDF : {partDF.count()}")
+print(f"...... product_questionDF : {product_questionDF.count()}")
+print(f"...... part_answer_bridgeDF : {part_answer_bridgeDF.count()}")
+print(f"...... policyDF : {policyDF.count()}")
+print(f"...... clientDF : {clientDF.count()}")
+
+# printing schemas from spark dataframes
+print (f" the schema of part : {partDF.printSchema()}")
+print (f" the schema of product_question : {product_questionDF.printSchema()}")
+print (f" the schema of part_answer_bridge : {part_answer_bridgeDF.printSchema()}")
+print (f" the schema of policy : {policyDF.printSchema()}")
+print (f" the schema of client : {clientDF.printSchema()}")
+
+# Joining partDF,part_answer_bridgeDF and product_questionDF on common keys
+joinedDF = partDF.join(part_answer_bridgeDF, partDF.part_key_pt == part_answer_bridgeDF.part_key_pab)
+print (f" the schema of joinedDF : {joinedDF.printSchema()}")
+joinedDF = product_questionDF.join(joinedDF, product_questionDF.product_question_key_pq == joinedDF.product_question_key_pab)
+
+print (f" the schema of new joinedDF  : {joinedDF.printSchema()}")
+
+# Joining different questions (Registration number, Vehicle make, Vehicle model, Surname etc on common key 'part_key_pt')
+joinedDF_VRN=joinedDF.filter(joinedDF.question_text == "Registration number")
+joinedDF_VRN=joinedDF_VRN.withColumnRenamed("answer_text","VRN")
+
+
+joinedDF_make=joinedDF.filter(joinedDF.question_text == "Vehicle make")
+joinedDF_make=joinedDF_make.withColumnRenamed("answer_text","Vehicle_Make")
+joinedDF_make=joinedDF_make.withColumnRenamed("part_key_pt","part_key_pt_make")
+
+
+joinedDF_model=joinedDF.filter(joinedDF.question_text == "Vehicle model")
+joinedDF_model=joinedDF_model.withColumnRenamed("answer_text","Vehicle Model")
+joinedDF_model=joinedDF_model.withColumnRenamed("part_key_pt","part_key_pt_model")
+
+joinedDF_surname=joinedDF.filter(joinedDF.question_text=="Driver surname")
+joinedDF_surname=joinedDF_surname.withColumnRenamed("answer_text","Insured Name Last")
+joinedDF_surname=joinedDF_surname.withColumnRenamed("part_key_pt","part_key_pt_surname")
+
+joinedDF_first=joinedDF.filter(joinedDF.question_text=="Driver First name")
+joinedDF_first=joinedDF_first.withColumnRenamed("answer_text","Insured_Name_First")
+joinedDF_first=joinedDF_first.withColumnRenamed("part_key_pt","part_key_pt_first")
+
+joinedDF_middle=joinedDF.filter(joinedDF.question_text=="Driver middle name")
+joinedDF_middle=joinedDF_middle.withColumnRenamed("answer_text","Insured_Name_Mid_Init")
+joinedDF_middle=joinedDF_middle.withColumnRenamed("part_key_pt","part_key_pt_middle")
+
+joinedDF_VRN=joinedDF_VRN.select("part_key_pt","VRN")
+joinedDF_make=joinedDF_make.select("part_key_pt_make","Vehicle_Make")
+joinedDF_model=joinedDF_model.select("part_key_pt_model","Vehicle Model")
+joinedDF_surname=joinedDF_surname.select("part_key_pt_surname","Insured Name Last")
+joinedDF_first=joinedDF_first.select("part_key_pt_first","Insured_Name_First")
+joinedDF_middle=joinedDF_middle.select("part_key_pt_middle","Insured_Name_Mid_Init")
+
+joinedDF=joinedDF_VRN.join(joinedDF_make,joinedDF_VRN.part_key_pt==joinedDF_make.part_key_pt_make)
+joinedDF=joinedDF.join(joinedDF_model,joinedDF.part_key_pt==joinedDF_model.part_key_pt_model)
+joinedDF=joinedDF.join(joinedDF_surname,joinedDF.part_key_pt==joinedDF_surname.part_key_pt_surname,"left")
+joinedDF=joinedDF.join(joinedDF_first,joinedDF.part_key_pt==joinedDF_first.part_key_pt_first,"left")
+joinedDF=joinedDF.join(joinedDF_middle,joinedDF.part_key_pt==joinedDF_middle.part_key_pt_middle,"left")
+joinedDF=joinedDF.drop("part_key_pt_make","part_key_pt_model","part_key_pt_surname","part_key_pt_first","part_key_pt_middle")
+joinedDF=joinedDF.withColumnRenamed("part_key_pt","part_key")
+
+joinedDF.show(5,truncate=True)
+
+print (f" the schema of joinedDF : {joinedDF.printSchema()}")
+
+# Joining combined 'part question dataframe' to 'policy','part' and 'client' dataframes
+joinedDF=joinedDF.join(partDF,joinedDF.part_key==partDF.part_key_pt)
+joinedDF=joinedDF.join(policyDF,joinedDF.policy_key_pt==policyDF.policy_key)
+print (f" the schema of joinedDF including partDF : {joinedDF.printSchema()}")
+joinedDF=joinedDF.join(clientDF,joinedDF.client_key_p==clientDF.client_key)
+print (f" the schema of joinedDF including partDF : {joinedDF.printSchema()}")
+
+# Remaining the Fields, dropping unwanted keys and checking for new records
+joinedDF=joinedDF.withColumnRenamed("insurer_policy_no","Policy_Number")
+joinedDF=joinedDF.withColumnRenamed("effective_date_key","Cover_Start_Date")
+joinedDF=joinedDF.withColumnRenamed("term_end_date_key","Cover_End_Date")
+joinedDF=joinedDF.withColumnRenamed("client_ref","Client_Reference_Number")
+joinedDF=joinedDF.drop("part_key","part_key_pt","policy_key","policy_key_pt","client_key_p","client_key")
+
+from pyspark.sql.functions import when
+from pyspark.sql.functions import *
+joinedDF = joinedDF.withColumn("Record_Type", when(joinedDF.accepted_date_key == current_date(),"20")
+                                 .otherwise("22"))
+ 
+joinedDF=joinedDF.drop("accepted_date_key") 
+joinedDF.show(5,truncate=True)
+
+joinedDF=DynamicFrame.fromDF(joinedDF,glueContext,"joinedDF")
+
+def Add_Y(r):
+    r["Glass_Cover_Flag"] = 'Y'
+    return r
+
+
+
+def Add_TBC(r):
+    r["Glass_Limit"] = 'TBC'
+    return r
+
+
+
+def Add_value(r):
+    r["Glass_Excess"] = '50.00'
+    return r
+
+joinedDF = Map.apply(frame = joinedDF, f = Add_Y)
+joinedDF = Map.apply(frame = joinedDF, f = Add_TBC)
+joinedDF = Map.apply(frame = joinedDF, f = Add_value)
+
+
+
+#joinedDF=joinedDF.coalesce(1)
+print (f" the schema of joinedDF : {joinedDF.printSchema()}")
+print(f"...... joinedDF : {joinedDF.count()}")
+
+AmazonS3_node = glueContext.write_dynamic_frame.from_options(
+    frame=joinedDF,
+    connection_type="s3",
+    format="glueparquet",
+    connection_options={
+        "path": "s3://mot-dev-opdata-rdsglue/autoglass_feed1/09_06_22/",
+        "partitionKeys": [],
+    },
+    format_options={"compression": "snappy"},
+
+)
+
+
+job.commit()
+

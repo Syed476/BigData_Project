@@ -1,0 +1,29 @@
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from awsglue.dynamicframe import DynamicFrame
+from pyspark.sql.functions import col
+from pyspark.sql.functions import lit
+
+args = getResolvedOptions(sys.argv, ["JOB_NAME"])
+sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args["JOB_NAME"], args)
+df_VRN=spark.sql("select pt.policy_key Policy_Number,c.client_ref Client_Reference_Number ,pab.answer_text VRN,ad.postcode_1,cp.other_title,cp.first_name,cp.name,cp.initials from mot_dev_rdsglue_acturis_datalake.part pt JOIN  mot_dev_rdsglue_acturis_datalake.policy p ON pt.policy_key=p.policy_key JOIN mot_dev_rdsglue_acturis_datalake.client c ON p.client_key=c.client_key JOIN mot_dev_rdsglue_acturis_datalake.part_type_version ptv ON pt.part_type_version_key=ptv.part_type_version_key JOIN mot_dev_rdsglue_acturis_datalake.part_type_version_question ptvq ON ptv.part_type_version_key=ptvq.part_type_version_key JOIN mot_dev_rdsglue_acturis_datalake.product_question pq ON ptvq.product_question_key=pq.product_question_key JOIN mot_dev_rdsglue_acturis_datalake.part_answer_bridge pab ON pq.product_question_key=pab.product_question_key JOIN mot_dev_rdsglue_acturis_datalake.address ad ON c.client_key=ad.client_key JOIN mot_dev_rdsglue_acturis_datalake.contact_people cp ON c.client_key=cp.client_key WHERE pq.question_text='Registration number'").repartition(1)
+
+df_vehicle_make=spark.sql("select pt.policy_key df_make_policy_number,pab.answer_text Vehicle_Make from mot_dev_rdsglue_acturis_datalake.part pt JOIN  mot_dev_rdsglue_acturis_datalake.policy p ON pt.policy_key=p.policy_key JOIN mot_dev_rdsglue_acturis_datalake.client c ON p.client_key=c.client_key JOIN mot_dev_rdsglue_acturis_datalake.part_type_version ptv ON pt.part_type_version_key=ptv.part_type_version_key JOIN mot_dev_rdsglue_acturis_datalake.part_type_version_question ptvq ON ptv.part_type_version_key=ptvq.part_type_version_key JOIN mot_dev_rdsglue_acturis_datalake.product_question pq ON ptvq.product_question_key=pq.product_question_key JOIN mot_dev_rdsglue_acturis_datalake.part_answer_bridge pab ON pq.product_question_key=pab.product_question_key WHERE pq.question_text='Vehicle make';").repartition(1)
+df=df_VRN.join(df_vehicle_make,df_VRN.Policy_Number==df_vehicle_make.df_make_policy_number,"inner")
+
+df = df.withColumn("Glass_Cover_Flat", lit('Y'))
+df = df.withColumn("Glass_Limit", lit('TBC'))
+df = df.withColumn("Glass_Excess", lit(50.00))
+
+
+df=df.select(*(col(c).cast("string") for c in df.columns))
+df.write.format("csv").mode("overwrite").save ('s3://mot-dev-opdata-rdsglue/autoglass_feed1/25-5-22/',header='true')
+job.commit()

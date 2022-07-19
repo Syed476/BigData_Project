@@ -1,0 +1,22 @@
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from awsglue.dynamicframe import DynamicFrame
+from pyspark.sql.functions import col
+from pyspark.sql.functions import lit
+
+args = getResolvedOptions(sys.argv, ["JOB_NAME"])
+sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args["JOB_NAME"], args)
+df=spark.sql("select * from mot_dev_rdsglue_acturis.09_06_22").repartition(1)
+
+
+#df=df.select(*(col(c).cast("string") for c in df.columns))
+df.write.format("csv").mode("overwrite").save ('s3://mot-dev-opdata-rdsglue/autoglass_feed1/09-6-22/',header='true')
+job.commit()

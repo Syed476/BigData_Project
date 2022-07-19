@@ -1,0 +1,23 @@
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from awsglue.dynamicframe import DynamicFrame
+from pyspark.sql.functions import col
+from pyspark.sql.functions import lit
+args = getResolvedOptions(sys.argv, ["JOB_NAME"])
+sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args["JOB_NAME"], args)
+df=spark.sql("SELECT c.client_ref,pt.policy_key,ad.postcode_1,qchv.vehicle_reg_no,av.vehicle_make,av.vehicle_model,cp.other_title,cp.first_name,cp.name,cp.initials,pv.version_start_date_key,pv.version_end_date_key FROM mot_dev_rdsglue_acturis_datalake.part pt JOIN mot_dev_rdsglue_acturis_datalake.policy p ON pt.policy_key=p.policy_key JOIN mot_dev_rdsglue_acturis_datalake.client c ON p.client_key=c.client_key JOIN mot_dev_rdsglue_acturis_datalake.quote q ON c.client_key=q.client_key JOIN mot_dev_rdsglue_acturis_datalake.address ad ON c.client_key=ad.client_key JOIN mot_dev_rdsglue_acturis_datalake.part_answer_bridge pab ON pt.part_key=pab.part_key JOIN mot_dev_rdsglue_acturis_datalake.abi_vehicle av ON pab.vehicle_key=av.vehicle_key JOIN mot_dev_rdsglue_acturis_datalake.contact_people cp ON c.client_key=cp.client_key JOIN mot_dev_rdsglue_acturis_datalake.product_version pv ON q.product_key=pv.product_key LEFT JOIN mot_dev_rdsglue_acturis_datalake.quote_claim_hist_vehicle qchv ON av.vehicle_key=qchv.vehicle_key").repartition(1)
+df = df.withColumn("Glass_Cover_Flat", lit('Y'))
+df = df.withColumn("Glass_Limit", lit('TBC'))
+df = df.withColumn("Glass_Excess", lit(50.00))
+
+df=df.select(*(col(c).cast("string") for c in df.columns))
+df.write.format("csv").mode("overwrite").save ('s3://mot-dev-opdata-rdsglue/autoglass_feed1/23-05-22/',header='true')
+job.commit()
